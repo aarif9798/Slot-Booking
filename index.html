@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session Booking</title>
+<style>
+  :root{--p:#4b2a73;--p2:#6a42a0;--bd:#8c93a3;--bg:#f6f5f9;--tx:#1d1b24;--ok:#1d7a46;--er:#b3261e}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,system-ui,Arial,sans-serif;background:var(--bg);color:var(--tx)}
+  header{background:var(--p);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:14px 24px}
+  header h1{font-size:18px;margin:0}
+  header a{color:#e6dcf5;margin-left:18px;text-decoration:none;font-size:14px}
+  header a.on{color:#fff;border-bottom:2px solid #fff}
+  main{max-width:760px;margin:28px auto;padding:0 16px}
+  .card{background:#fff;border-radius:10px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:22px}
+  h2{margin:0 0 16px;font-size:20px}
+  label{display:block;font-size:14px;margin:14px 0 5px}
+  label .i{display:inline-block;width:16px;height:16px;border-radius:50%;background:#2f6fd0;color:#fff;font-size:11px;text-align:center;line-height:16px;margin-right:6px}
+  input,select{width:100%;padding:9px 10px;border:1px solid #1d1b24;border-radius:4px;font-size:14px;background:#fff}
+  input:focus,select:focus{outline:2px solid var(--p2)}
+  .btn{background:var(--p);color:#fff;border:0;padding:11px 20px;border-radius:3px;font-size:14px;cursor:pointer;margin-top:18px}
+  .btn:hover{background:var(--p2)} .btn:disabled{opacity:.5;cursor:wait}
+  .btn.sec{background:#fff;color:var(--p);border:1px solid var(--p)}
+  .btn.del{background:#fff;color:var(--er);border:1px solid var(--er);padding:4px 10px;margin:0}
+  hr{border:0;border-top:1px solid #4a5568;margin:18px 0 0}
+  .msg{margin-top:14px;font-size:14px;padding:10px 12px;border-radius:6px;display:none}
+  .msg.ok{display:block;background:#e6f4ec;color:var(--ok)} .msg.er{display:block;background:#fdeceb;color:var(--er)}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;align-items:end}
+  .grid3 .rm{background:none;border:0;color:var(--er);cursor:pointer;font-size:13px;padding:0 0 10px}
+  /* calendar */
+  .cal{border:1px solid #d6d3de;border-radius:8px;padding:10px;max-width:330px}
+  .calhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:600}
+  .calhead button{border:0;background:#eee;border-radius:4px;width:30px;height:28px;cursor:pointer}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+  .dow{font-size:11px;color:#666}
+  .day{border:0;background:none;height:34px;border-radius:50%;font-size:13px;color:#aaa}
+  .day.avail{background:#ece4f8;color:var(--p);font-weight:700;cursor:pointer}
+  .day.avail:hover{background:#d9c9f0} .day.sel{background:var(--p);color:#fff}
+  .picked{font-size:13px;margin-top:6px;color:#555}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #e5e2ec} th{background:#f1eef7}
+  .tw{overflow-x:auto}
+  @media(max-width:600px){.grid3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Session Booking</h1>
+  <nav><a href="#" id="navC" class="on">Book a slot</a><a href="#admin" id="navA">Admin</a></nav>
+</header>
+<main>
+
+<!-- ================= CANDIDATE ================= -->
+<section id="candidate">
+  <div class="card">
+    <h2>Book your session</h2>
+    <form id="bookForm" autocomplete="off">
+      <label for="learner">Learner No*</label>
+      <input id="learner" type="text" required>
+      <label for="name">Name*</label>
+      <input id="name" type="text" required>
+      <label for="email">Email*</label>
+      <input id="email" type="email" required>
+
+      <label>Date*</label>
+      <div class="cal">
+        <div class="calhead"><button type="button" id="prev">&#8249;</button><span id="calTitle"></span><button type="button" id="next">&#8250;</button></div>
+        <div class="calgrid" id="calGrid"></div>
+      </div>
+      <div class="picked" id="picked">Highlighted dates are available.</div>
+
+      <label for="time">Joining time*</label>
+      <select id="time" required disabled><option value="">Select a date first</option></select>
+
+      <button class="btn" id="bookBtn" type="submit">Book slot</button>
+      <div class="msg" id="bookMsg"></div>
+    </form>
+  </div>
+</section>
+
+<!-- ================= ADMIN ================= -->
+<section id="admin" hidden>
+  <div class="card" id="loginCard">
+    <h2>Admin login</h2>
+    <label for="pw">Password</label>
+    <input id="pw" type="password">
+    <button class="btn" id="loginBtn" type="button">Login</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="adminBody" hidden>
+    <div class="card">
+      <h2>Set available dates &amp; time</h2>
+      <div id="rows"></div>
+      <hr>
+      <button class="btn sec" id="addRow" type="button" style="margin-right:8px">Add new date</button>
+      <button class="btn" id="saveRows" type="button">Save availability</button>
+      <div class="msg" id="saveMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Available dates</h2>
+      <div class="tw"><table><thead><tr><th>Date</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h2>Bookings</h2>
+      <div class="tw"><table><thead><tr><th>Learner No</th><th>Name</th><th>Email</th><th>Date</th><th>Time</th></tr></thead><tbody id="bkBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ====== PASTE YOUR GOOGLE APPS SCRIPT WEB APP URL HERE ====== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbwb3rG-4JLlcCe77jKqJnjPo-tZ77ouCguRDfbTG498IoSuCkxgmk4-ZvZu-LljjtYt/exec';
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const fmt12 = t => { let [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return pad(h) + ':' + pad(m) + ' ' + ap; };
+const fmtDate = d => new Date(d + 'T00:00').toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+function show(el, type, text) { el.className = 'msg ' + type; el.textContent = text; }
+function clear(el) { el.className = 'msg'; el.textContent = ''; }
+
+async function api(body) {
+  const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+  return r.json();
+}
+async function getSlots() {
+  const r = await fetch(API_URL + '?action=slots&_=' + Date.now());
+  return r.json();
+}
+
+/* ---------- routing ---------- */
+function route() {
+  const adm = location.hash === '#admin';
+  $('candidate').hidden = adm; $('admin').hidden = !adm;
+  $('navA').classList.toggle('on', adm); $('navC').classList.toggle('on', !adm);
+}
+window.addEventListener('hashchange', route); route();
+
+/* ================= CANDIDATE ================= */
+let byDate = {}, view = new Date(), selDate = '';
+
+async function loadSlots() {
+  try {
+    const res = await getSlots();
+    if (!res.ok) throw new Error(res.error);
+    byDate = {}; res.days.forEach(d => byDate[d.date] = d.slots);
+    const keys = Object.keys(byDate).sort();
+    if (keys.length) { const f = new Date(keys[0] + 'T00:00'); view = new Date(f.getFullYear(), f.getMonth(), 1); }
+    else { $('picked').textContent = 'No dates available right now. Please check back later.'; }
+    renderCal();
+  } catch (e) {
+    $('picked').textContent = 'Could not load dates. Check API_URL / deployment.';
+  }
+}
+
+function renderCal() {
+  const y = view.getFullYear(), m = view.getMonth();
+  $('calTitle').textContent = view.toLocaleString('en', { month: 'long', year: 'numeric' });
+  const first = new Date(y, m, 1).getDay(), dim = new Date(y, m + 1, 0).getDate();
+  let h = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => `<div class="dow">${d}</div>`).join('');
+  for (let i = 0; i < first; i++) h += '<div></div>';
+  for (let d = 1; d <= dim; d++) {
+    const key = `${y}-${pad(m + 1)}-${pad(d)}`, ok = !!byDate[key];
+    h += `<button type="button" class="day ${ok ? 'avail' : ''} ${key === selDate ? 'sel' : ''}" ${ok ? '' : 'disabled'} data-d="${key}">${d}</button>`;
+  }
+  $('calGrid').innerHTML = h;
+}
+$('prev').onclick = () => { view = new Date(view.getFullYear(), view.getMonth() - 1, 1); renderCal(); };
+$('next').onclick = () => { view = new Date(view.getFullYear(), view.getMonth() + 1, 1); renderCal(); };
+$('calGrid').addEventListener('click', e => {
+  const b = e.target.closest('.day.avail'); if (!b) return;
+  selDate = b.dataset.d; renderCal();
+  $('picked').textContent = 'Selected: ' + fmtDate(selDate);
+  const sel = $('time');
+  sel.innerHTML = '<option value="">Select joining time</option>' +
+    byDate[selDate].map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  sel.disabled = false;
+});
+
+$('bookForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('bookMsg'); clear(msg);
+  if (!selDate) return show(msg, 'er', 'Please select a date.');
+  if (!$('time').value) return show(msg, 'er', 'Please select a joining time.');
+  $('bookBtn').disabled = true;
+  try {
+    const res = await api({ action: 'book', learner: $('learner').value, name: $('name').value, email: $('email').value, date: selDate, time: $('time').value });
+    if (res.ok) {
+      show(msg, 'ok', `Booked! ${fmtDate(selDate)} at ${fmt12($('time').value)}. A calendar invite is sent to your email.`);
+      $('bookForm').reset(); selDate = ''; $('time').innerHTML = '<option value="">Select a date first</option>'; $('time').disabled = true;
+      $('picked').textContent = 'Highlighted dates are available.';
+    } else show(msg, 'er', res.error || 'Booking failed.');
+  } catch (err) { show(msg, 'er', 'Network error. Please try again.'); }
+  $('bookBtn').disabled = false;
+  loadSlots();
+});
+
+/* ================= ADMIN ================= */
+let adminPw = '';
+
+function addRow(d = '', s = '', e = '') {
+  const div = document.createElement('div');
+  div.className = 'grid3'; div.style.marginBottom = '14px';
+  div.innerHTML = `
+    <div><label><span class="i">i</span>Date*</label><input type="date" class="r-date" value="${d}"></div>
+    <div><label>Start time*</label><input type="time" class="r-start" value="${s}"></div>
+    <div><label>End time*</label><input type="time" class="r-end" value="${e}"></div>`;
+  if ($('rows').children.length) {
+    const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'rm'; rm.textContent = 'Remove';
+    rm.onclick = () => div.remove(); div.lastElementChild.appendChild(rm);
+  }
+  $('rows').appendChild(div);
+}
+$('addRow').onclick = () => addRow();
+
+async function loadAdmin() {
+  let res;
+  if (API_URL.indexOf('PASTE_') === 0) { show($('loginMsg'), 'er', 'API_URL is not set in index.html. Paste your Apps Script Web app URL.'); return false; }
+  try {
+    res = await api({ action: 'adminList', password: adminPw });
+  } catch (err) {
+    show($('loginMsg'), 'er', 'Cannot reach the server. Check: Web app deployed with "Who has access: Anyone", URL ends with /exec, and the latest version is deployed.');
+    return false;
+  }
+  if (!res.ok) { show($('loginMsg'), 'er', res.error); return false; }
+  const td = t => { const c = document.createElement('td'); c.textContent = t; return c; };
+
+  const av = $('avBody'); av.innerHTML = '';
+  if (!res.availability.length) av.innerHTML = '<tr><td colspan="4">No dates added yet.</td></tr>';
+  res.availability.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.append(td(fmtDate(a.date)), td(fmt12(a.start)), td(fmt12(a.end)));
+    const c = document.createElement('td'), b = document.createElement('button');
+    b.className = 'btn del'; b.textContent = 'Delete';
+    b.onclick = async () => { if (confirm('Delete this date?')) { await api({ action: 'adminDelete', password: adminPw, id: a.id }); loadAdmin(); } };
+    c.appendChild(b); tr.appendChild(c); av.appendChild(tr);
+  });
+
+  const bk = $('bkBody'); bk.innerHTML = '';
+  if (!res.bookings.length) bk.innerHTML = '<tr><td colspan="5">No bookings yet.</td></tr>';
+  res.bookings.forEach(b => {
+    const tr = document.createElement('tr');
+    tr.append(td(b.learner), td(b.name), td(b.email), td(fmtDate(b.date)), td(fmt12(b.time)));
+    bk.appendChild(tr);
+  });
+  return true;
+}
+
+$('loginBtn').onclick = async () => {
+  adminPw = $('pw').value.trim(); show($('loginMsg'), 'ok', 'Checking...');
+  if (await loadAdmin()) {
+    clear($('loginMsg'));
+    $('loginCard').hidden = true; $('adminBody').hidden = false;
+    if (!$('rows').children.length) addRow();
+  }
+};
+$('pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
+
+$('saveRows').onclick = async () => {
+  const msg = $('saveMsg'); clear(msg);
+  const rows = [...$('rows').children].map(r => ({
+    date: r.querySelector('.r-date').value, start: r.querySelector('.r-start').value, end: r.querySelector('.r-end').value
+  }));
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.date || !r.start || !r.end) return show(msg, 'er', `Row ${i + 1}: Date, Start time and End time are required.`);
+    if (r.end < r.start) return show(msg, 'er', `Row ${i + 1}: End time must be after start time.`);
+  }
+  $('saveRows').disabled = true;
+  const res = await api({ action: 'adminAdd', password: adminPw, rows });
+  $('saveRows').disabled = false;
+  if (res.ok) {
+    show(msg, 'ok', 'Saved. Candidates can now see these dates & times.');
+    $('rows').innerHTML = ''; addRow(); loadAdmin();
+  } else show(msg, 'er', res.error);
+};
+
+loadSlots();
+</script>
+</body>
+</html>
