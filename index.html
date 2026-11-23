@@ -12,7 +12,11 @@
   header h1{font-size:18px;margin:0}
   header a{color:#e6dcf5;margin-left:18px;text-decoration:none;font-size:14px}
   header a.on{color:#fff;border-bottom:2px solid #fff}
-  main{max-width:760px;margin:28px auto;padding:0 16px}
+  main{max-width:1180px;margin:28px auto;padding:0 16px}
+  #candidate{max-width:760px;margin:0 auto}
+  .scroll td,.scroll th{white-space:nowrap}
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{background:#e6e0f2}
   .card{background:#fff;border-radius:10px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:22px}
   h2{margin:0 0 16px;font-size:20px}
   label{display:block;font-size:14px;margin:14px 0 5px}
@@ -41,6 +45,22 @@
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #e5e2ec} th{background:#f1eef7}
   .tw{overflow-x:auto}
+  .scroll{max-height:470px;overflow-y:auto;border:1px solid #e5e2ec;border-radius:6px}
+  .scroll th{position:sticky;top:0;z-index:1}
+  .pager{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:14px}
+  .pager button{min-width:34px;height:34px;border:1px solid var(--p);background:#fff;color:var(--p);border-radius:4px;cursor:pointer;font-size:14px}
+  .pager button.on{background:var(--p);color:#fff}
+  .btn.edit{background:#fff;color:var(--p);border:1px solid var(--p);padding:4px 10px;margin:0 6px 0 0}
+  [hidden]{display:none!important}
+  .nosel .col-cb{display:none}
+  .bkbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .bkbar h2{margin:0}
+  .bkact{display:flex;align-items:center;gap:14px}
+  .selall{display:flex;align-items:center;gap:6px;margin:0;font-size:14px;cursor:pointer}
+  .selall input,.bk-cb{width:16px;height:16px;padding:0;accent-color:var(--p);cursor:pointer}
+  #delSel{padding:8px 16px;margin:0}
+  #delSel:disabled{opacity:.4;cursor:not-allowed}
+  #delSel:not(:disabled){background:var(--er);color:#fff}
   @media(max-width:600px){.grid3{grid-template-columns:1fr}}
 </style>
 </head>
@@ -96,6 +116,7 @@
       <hr>
       <button class="btn sec" id="addRow" type="button" style="margin-right:8px">Add new date</button>
       <button class="btn" id="saveRows" type="button">Save availability</button>
+      <button class="btn sec" id="cancelEdit" type="button" hidden style="margin-left:8px">Cancel</button>
       <div class="msg" id="saveMsg"></div>
     </div>
 
@@ -105,8 +126,16 @@
     </div>
 
     <div class="card">
-      <h2>Bookings</h2>
-      <div class="tw"><table><thead><tr><th>Learner No</th><th>Name</th><th>Email</th><th>Date</th><th>Time</th></tr></thead><tbody id="bkBody"></tbody></table></div>
+      <div class="bkbar">
+        <h2>Bookings</h2>
+        <div class="bkact">
+          <label class="selall" hidden><input type="checkbox" id="selAll"> Select all</label>
+          <button class="btn sec" id="cancelSel" type="button" hidden style="margin:0;padding:8px 16px">Cancel</button>
+          <button class="btn del" id="delSel" type="button">Delete</button>
+        </div>
+      </div>
+      <div class="tw scroll nosel" id="bkWrap"><table><thead><tr><th class="col-cb" style="width:34px"></th><th>Learner No</th><th>Name</th><th>Email</th><th class="sortable" id="thDate" title="Sort by date">Date</th><th class="sortable" id="thTime" title="Sort by time">Time</th></tr></thead><tbody id="bkBody"></tbody></table></div>
+      <div class="pager" id="pager"></div>
     </div>
   </div>
 </section>
@@ -191,7 +220,7 @@ $('bookForm').addEventListener('submit', async e => {
   try {
     const res = await api({ action: 'book', learner: $('learner').value, name: $('name').value, email: $('email').value, date: selDate, time: $('time').value });
     if (res.ok) {
-      show(msg, 'ok', `Booked! ${fmtDate(selDate)} at ${fmt12($('time').value)}. A calendar invite is sent to your email.`);
+      show(msg, 'ok', `Booked! ${fmtDate(selDate)} at ${fmt12($('time').value)}. ${res.mailed === true ? 'A confirmation email has been sent to you.' : res.mailed === false ? 'Note: the confirmation email could not be sent, please contact the admin.' : 'A calendar invite is sent to your email.'}`);
       $('bookForm').reset(); selDate = ''; $('time').innerHTML = '<option value="">Select a date first</option>'; $('time').disabled = true;
       $('picked').textContent = 'Highlighted dates are available.';
     } else show(msg, 'er', res.error || 'Booking failed.');
@@ -218,15 +247,89 @@ function addRow(d = '', s = '', e = '') {
 }
 $('addRow').onclick = () => addRow();
 
-async function loadAdmin() {
-  let res;
-  if (API_URL.indexOf('PASTE_') === 0) { show($('loginMsg'), 'er', 'API_URL is not set in index.html. Paste your Apps Script Web app URL.'); return false; }
-  try {
-    res = await api({ action: 'adminList', password: adminPw });
-  } catch (err) {
-    show($('loginMsg'), 'er', 'Cannot reach the server. Check: Web app deployed with "Who has access: Anyone", URL ends with /exec, and the latest version is deployed.');
-    return false;
+let bookingsAll = [], page = 1, editId = '';
+const PER = 10;
+const sel = new Set();
+let selMode = false;   // checkboxes + Select all stay hidden until Delete is clicked
+
+function updateSel() {
+  $('selAll').parentElement.hidden = !selMode;
+  $('cancelSel').hidden = !selMode;
+  $('bkWrap').classList.toggle('nosel', !selMode);
+  $('delSel').disabled = selMode && sel.size === 0;
+  $('delSel').textContent = selMode && sel.size ? `Delete (${sel.size})` : 'Delete';
+  $('selAll').checked = bookingsAll.length > 0 && sel.size === bookingsAll.length;
+}
+$('cancelSel').onclick = () => { sel.clear(); selMode = false; renderBookings(); };
+$('selAll').onchange = e => {
+  sel.clear();
+  if (e.target.checked) bookingsAll.forEach(b => sel.add(b.id));
+  renderBookings();
+};
+$('delSel').onclick = async () => {
+  if (!selMode) { selMode = true; updateSel(); return; }   // 1st click: show checkboxes
+  if (!sel.size) return;
+  if (!confirm(`Delete ${sel.size} booking(s)? They will be removed from the Google Sheet and Calendar.`)) return;
+  $('delSel').disabled = true;
+  const res = await api({ action: 'adminDeleteBookings', password: adminPw, ids: [...sel] });
+  if (res.ok) { sel.clear(); selMode = false; await loadAdmin(); loadSlots(); }
+  else alert(res.error || 'Delete failed');
+  updateSel();
+};
+
+let sortBy = 'date', sortDir = 1;   // default: date order, then time order (earliest first)
+function sortedBk() {
+  const key = b => sortBy === 'date' ? b.date + ' ' + b.time : b.time + ' ' + b.date;
+  return [...bookingsAll].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * sortDir);
+}
+$('thDate').onclick = () => { sortDir = sortBy === 'date' ? -sortDir : 1; sortBy = 'date'; page = 1; renderBookings(); };
+$('thTime').onclick = () => { sortDir = sortBy === 'time' ? -sortDir : 1; sortBy = 'time'; page = 1; renderBookings(); };
+
+function renderBookings() {
+  const arrow = k => sortBy === k ? (sortDir > 0 ? ' ▲' : ' ▼') : '';
+  $('thDate').textContent = 'Date' + arrow('date');
+  $('thTime').textContent = 'Time' + arrow('time');
+  const bk = $('bkBody'); bk.innerHTML = '';
+  const pages = Math.max(1, Math.ceil(bookingsAll.length / PER));
+  if (page > pages) page = pages;
+  if (!bookingsAll.length) bk.innerHTML = '<tr><td colspan="6">No bookings yet.</td></tr>';
+  sortedBk().slice((page - 1) * PER, page * PER).forEach(b => {
+    const tr = document.createElement('tr');
+    const c0 = document.createElement('td'); c0.className = 'col-cb';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.className = 'bk-cb'; cb.checked = sel.has(b.id);
+    cb.onchange = () => { cb.checked ? sel.add(b.id) : sel.delete(b.id); updateSel(); };
+    c0.appendChild(cb); tr.appendChild(c0);
+    [b.learner, b.name, b.email, fmtDate(b.date), fmt12(b.time)].forEach(t => {
+      const c = document.createElement('td'); c.textContent = t; tr.appendChild(c);
+    });
+    bk.appendChild(tr);
+  });
+  const pg = $('pager'); pg.innerHTML = '';
+  if (pages > 1) for (let i = 1; i <= pages; i++) {
+    const x = document.createElement('button'); x.textContent = i;
+    if (i === page) x.className = 'on';
+    x.onclick = () => { page = i; renderBookings(); };
+    pg.appendChild(x);
   }
+  updateSel();
+}
+
+function startEdit(a) {
+  editId = a.id; $('rows').innerHTML = ''; addRow(a.date, a.start, a.end);
+  $('addRow').hidden = true; $('cancelEdit').hidden = false;
+  $('saveRows').textContent = 'Update date'; clear($('saveMsg'));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function endEdit() {
+  editId = ''; $('rows').innerHTML = ''; addRow();
+  $('addRow').hidden = false; $('cancelEdit').hidden = true;
+  $('saveRows').textContent = 'Save availability';
+}
+$('cancelEdit').onclick = () => { endEdit(); clear($('saveMsg')); };
+
+async function loadAdmin() {
+  const res = await api({ action: 'adminList', password: adminPw });
   if (!res.ok) { show($('loginMsg'), 'er', res.error); return false; }
   const td = t => { const c = document.createElement('td'); c.textContent = t; return c; };
 
@@ -238,23 +341,18 @@ async function loadAdmin() {
     const c = document.createElement('td'), b = document.createElement('button');
     b.className = 'btn del'; b.textContent = 'Delete';
     b.onclick = async () => { if (confirm('Delete this date?')) { await api({ action: 'adminDelete', password: adminPw, id: a.id }); loadAdmin(); } };
-    c.appendChild(b); tr.appendChild(c); av.appendChild(tr);
+    const eb = document.createElement('button');
+    eb.className = 'btn edit'; eb.textContent = 'Edit'; eb.onclick = () => startEdit(a);
+    c.append(eb, b); tr.appendChild(c); av.appendChild(tr);
   });
 
-  const bk = $('bkBody'); bk.innerHTML = '';
-  if (!res.bookings.length) bk.innerHTML = '<tr><td colspan="5">No bookings yet.</td></tr>';
-  res.bookings.forEach(b => {
-    const tr = document.createElement('tr');
-    tr.append(td(b.learner), td(b.name), td(b.email), td(fmtDate(b.date)), td(fmt12(b.time)));
-    bk.appendChild(tr);
-  });
+  bookingsAll = res.bookings; renderBookings();
   return true;
 }
 
 $('loginBtn').onclick = async () => {
-  adminPw = $('pw').value.trim(); show($('loginMsg'), 'ok', 'Checking...');
+  adminPw = $('pw').value; clear($('loginMsg'));
   if (await loadAdmin()) {
-    clear($('loginMsg'));
     $('loginCard').hidden = true; $('adminBody').hidden = false;
     if (!$('rows').children.length) addRow();
   }
@@ -272,11 +370,13 @@ $('saveRows').onclick = async () => {
     if (r.end < r.start) return show(msg, 'er', `Row ${i + 1}: End time must be after start time.`);
   }
   $('saveRows').disabled = true;
-  const res = await api({ action: 'adminAdd', password: adminPw, rows });
+  const res = editId
+    ? await api({ action: 'adminUpdate', password: adminPw, id: editId, row: rows[0] })
+    : await api({ action: 'adminAdd', password: adminPw, rows });
   $('saveRows').disabled = false;
   if (res.ok) {
-    show(msg, 'ok', 'Saved. Candidates can now see these dates & times.');
-    $('rows').innerHTML = ''; addRow(); loadAdmin();
+    show(msg, 'ok', editId ? 'Updated.' : 'Saved. Candidates can now see these dates & times.');
+    endEdit(); loadAdmin();
   } else show(msg, 'er', res.error);
 };
 
