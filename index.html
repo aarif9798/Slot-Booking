@@ -42,6 +42,18 @@
   .day.avail{background:#ece4f8;color:var(--p);font-weight:700;cursor:pointer}
   .day.avail:hover{background:#d9c9f0} .day.sel{background:var(--p);color:#fff}
   .picked{font-size:13px;margin-top:6px;color:#555}
+  .titlebar{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .timer{display:flex;flex-direction:column;align-items:flex-end;background:#f1eef7;border:1px solid #d9c9f0;border-radius:8px;padding:6px 12px}
+  .tlabel{font-size:11px;color:#555}
+  .tval{font-size:20px;font-weight:700;color:var(--p);font-variant-numeric:tabular-nums}
+  .timer.warn .tval{color:var(--er)}
+  .timer.off{background:#fdeceb;border-color:#f0b9b5}.timer.off .tval{color:var(--er);font-size:15px}
+  #bookForm.locked{opacity:.5;pointer-events:none}
+  .durbox{display:flex;flex-direction:column;min-width:170px}
+  .durbox label{margin:0 0 4px;font-size:12px;color:#555}
+  .winbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+  .winbar .st{font-size:15px}.winbar .st b{font-variant-numeric:tabular-nums}
+  .btn.go{background:var(--ok)}.btn.go:hover{background:#16603a}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #e5e2ec} th{background:#f1eef7}
   .tw{overflow-x:auto}
@@ -74,7 +86,14 @@
 <!-- ================= CANDIDATE ================= -->
 <section id="candidate">
   <div class="card">
-    <h2>Book your session</h2>
+    <div class="titlebar">
+      <h2>Book your session</h2>
+      <div class="timer" id="timerBox" hidden>
+        <span class="tlabel" id="timerLabel">Booking closes in</span>
+        <span class="tval" id="timerVal">--:--:--</span>
+      </div>
+    </div>
+    <div class="msg er" id="closedMsg" hidden style="margin:0 0 6px">Booking is closed.</div>
     <form id="bookForm" autocomplete="off">
       <label for="learner">Learner No*</label>
       <input id="learner" type="text" required>
@@ -111,7 +130,30 @@
 
   <div id="adminBody" hidden>
     <div class="card">
-      <h2>Set available dates &amp; time</h2>
+      <h2>Booking timer (24 hrs)</h2>
+      <div class="winbar">
+        <div class="st" id="winStatus">Loading...</div>
+        <div>
+          <button class="btn go" id="startTimer" type="button" style="margin:0">Start 24 hrs</button>
+          <button class="btn del" id="stopTimer" type="button" style="margin-left:8px;padding:11px 20px">Stop</button>
+        </div>
+      </div>
+      <div class="msg" id="winMsg"></div>
+    </div>
+
+    <div class="card">
+      <div class="titlebar">
+        <h2>Set available dates &amp; time</h2>
+        <div class="durbox">
+          <label for="slotMin">Slot length</label>
+          <select id="slotMin">
+            <option value="15">15 Minutes</option>
+            <option value="30" selected>30 Minutes</option>
+            <option value="45">45 Minutes</option>
+            <option value="60">60 Minutes</option>
+          </select>
+        </div>
+      </div>
       <div id="rows"></div>
       <hr>
       <button class="btn sec" id="addRow" type="button" style="margin-right:8px">Add new date</button>
@@ -122,7 +164,7 @@
 
     <div class="card">
       <h2>Available dates</h2>
-      <div class="tw"><table><thead><tr><th>Date</th><th>From</th><th>To</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
+      <div class="tw"><table><thead><tr><th>Date</th><th>From</th><th>To</th><th>Slot</th><th></th></tr></thead><tbody id="avBody"></tbody></table></div>
     </div>
 
     <div class="card">
@@ -173,10 +215,38 @@ window.addEventListener('hashchange', route); route();
 /* ================= CANDIDATE ================= */
 let byDate = {}, view = new Date(), selDate = '';
 
+/* ---------- 24-hour booking timer ---------- */
+let winEnd = 0, skew = 0, tick = null;   // skew = server time - browser time
+const hms = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor(s % 3600 / 60)) + ':' + pad(s % 60); };
+function setWindow(w) {
+  if (!w) return;
+  winEnd = w.end || 0; skew = w.now - Date.now();
+  paintTimer();
+  if (!tick) tick = setInterval(paintTimer, 1000);
+}
+function remaining() { return winEnd - (Date.now() + skew); }
+function paintTimer() {
+  const left = remaining(), open = left > 0;
+  const box = $('timerBox'), form = $('bookForm');
+  box.hidden = false;
+  box.classList.toggle('off', !open);
+  box.classList.toggle('warn', open && left < 3600000);
+  $('timerLabel').textContent = open ? 'Booking closes in' : '';
+  $('timerVal').textContent = open ? hms(left) : 'Booking closed';
+  form.classList.toggle('locked', !open);
+  $('closedMsg').hidden = open;
+  $('closedMsg').textContent = winEnd ? 'Booking time is over. You can no longer book.' : 'Booking has not started yet.';
+  // admin status line
+  const st = $('winStatus');
+  if (st) st.innerHTML = open ? 'Booking is <b style="color:var(--ok)">OPEN</b> &middot; closes in <b>' + hms(left) + '</b>'
+                              : 'Booking is <b style="color:var(--er)">CLOSED</b>' + (winEnd ? ' (24 hrs finished)' : ' (timer not started)');
+}
+
 async function loadSlots() {
   try {
     const res = await getSlots();
     if (!res.ok) throw new Error(res.error);
+    setWindow(res.win);
     byDate = {}; res.days.forEach(d => byDate[d.date] = d.slots);
     const keys = Object.keys(byDate).sort();
     if (keys.length) { const f = new Date(keys[0] + 'T00:00'); view = new Date(f.getFullYear(), f.getMonth(), 1); }
@@ -317,6 +387,7 @@ function renderBookings() {
 
 function startEdit(a) {
   editId = a.id; $('rows').innerHTML = ''; addRow(a.date, a.start, a.end);
+  $('slotMin').value = String(a.dur || 30);
   $('addRow').hidden = true; $('cancelEdit').hidden = false;
   $('saveRows').textContent = 'Update date'; clear($('saveMsg'));
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -331,13 +402,14 @@ $('cancelEdit').onclick = () => { endEdit(); clear($('saveMsg')); };
 async function loadAdmin() {
   const res = await api({ action: 'adminList', password: adminPw });
   if (!res.ok) { show($('loginMsg'), 'er', res.error); return false; }
+  setWindow(res.win);
   const td = t => { const c = document.createElement('td'); c.textContent = t; return c; };
 
   const av = $('avBody'); av.innerHTML = '';
   if (!res.availability.length) av.innerHTML = '<tr><td colspan="4">No dates added yet.</td></tr>';
   res.availability.forEach(a => {
     const tr = document.createElement('tr');
-    tr.append(td(fmtDate(a.date)), td(fmt12(a.start)), td(fmt12(a.end)));
+    tr.append(td(fmtDate(a.date)), td(fmt12(a.start)), td(fmt12(a.end)), td((a.dur || 30) + ' min'));
     const c = document.createElement('td'), b = document.createElement('button');
     b.className = 'btn del'; b.textContent = 'Delete';
     b.onclick = async () => { if (confirm('Delete this date?')) { await api({ action: 'adminDelete', password: adminPw, id: a.id }); loadAdmin(); } };
@@ -357,12 +429,25 @@ $('loginBtn').onclick = async () => {
     if (!$('rows').children.length) addRow();
   }
 };
+$('startTimer').onclick = async () => {
+  if (remaining() > 0 && !confirm('Timer is already running. Restart it for a fresh 24 hours?')) return;
+  const res = await api({ action: 'adminStartTimer', password: adminPw });
+  if (res.ok) { setWindow(res.win); show($('winMsg'), 'ok', '24-hour timer started. Candidates can book now.'); }
+  else show($('winMsg'), 'er', res.error);
+};
+$('stopTimer').onclick = async () => {
+  if (!confirm('Stop booking now? Candidates will not be able to book.')) return;
+  const res = await api({ action: 'adminStopTimer', password: adminPw });
+  if (res.ok) { setWindow(res.win); show($('winMsg'), 'ok', 'Booking stopped.'); }
+  else show($('winMsg'), 'er', res.error);
+};
 $('pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginBtn').click(); });
 
 $('saveRows').onclick = async () => {
   const msg = $('saveMsg'); clear(msg);
   const rows = [...$('rows').children].map(r => ({
-    date: r.querySelector('.r-date').value, start: r.querySelector('.r-start').value, end: r.querySelector('.r-end').value
+    date: r.querySelector('.r-date').value, start: r.querySelector('.r-start').value, end: r.querySelector('.r-end').value,
+    dur: Number($('slotMin').value)
   }));
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
